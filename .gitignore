@@ -1,0 +1,16 @@
+# Personal signing values and generated project files
+local.env
+HeartRateMenuBar.xcodeproj/
+Mac/Info.plist
+Watch/Info.plist
+Watch/HRWatchApp.entitlements
+WatchWidgets/Info.plist
+WatchWidgets/HRWatchWidgets.entitlements
+# Build output and local artifacts
+.build/
+Build/
+Backups/
+.DS_Store
+xcuserdata/
+# Working notes with personal device and account details
+Docs/internal/

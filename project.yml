@@ -1,0 +1,104 @@
+# Generate with Scripts/generate.sh — it supplies HR_BUNDLE_PREFIX and HR_TEAM_ID
+# from local.env. Running xcodegen directly leaves those placeholders empty.
+name: HeartRateMenuBar
+options:
+  bundleIdPrefix: ${HR_BUNDLE_PREFIX}
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "15.0"
+    watchOS: "11.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: ${HR_TEAM_ID}
+    CODE_SIGN_STYLE: Automatic
+targets:
+  HRMenuBar:
+    type: application
+    platform: macOS
+    sources:
+      - path: Mac
+      - path: Shared
+    info:
+      path: Mac/Info.plist
+      properties:
+        CFBundleDisplayName: Heart Rate
+        LSUIElement: true
+        NSLocalNetworkUsageDescription: "Heart Rate receives live heart-rate data from your Apple Watch over Wi-Fi."
+        HRAppGroup: group.${HR_BUNDLE_PREFIX}.hrlink
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    # iCloud pairing needs a paid Apple Developer Program team (a free
+    # Personal Team cannot provision iCloud). To switch it on: uncomment the
+    # entitlements here and on HRWatchApp, and add ICLOUD_PAIRING to
+    # SWIFT_ACTIVE_COMPILATION_CONDITIONS under settings.base.
+    # entitlements:
+    #   path: Mac/HRMenuBar.entitlements
+    #   properties:
+    #     com.apple.developer.icloud-container-identifiers:
+    #       - iCloud.${HR_BUNDLE_PREFIX}.hrlink
+    #     com.apple.developer.icloud-services:
+    #       - CloudKit
+  HRWatchApp:
+    type: application
+    platform: watchOS
+    sources:
+      - path: Watch
+      - path: WatchShared
+      - path: Shared
+    info:
+      path: Watch/Info.plist
+      properties:
+        CFBundleDisplayName: Heart Rate Mac
+        CFBundleVersion: "7"
+        HRAppGroup: group.${HR_BUNDLE_PREFIX}.hrlink
+        WKApplication: true
+        WKWatchOnly: true
+        WKBackgroundModes:
+          - workout-processing
+        NSHealthShareUsageDescription: "This app reads your heart rate during a live monitoring session you start on the watch."
+        NSHealthUpdateUsageDescription: "This app starts temporary HealthKit sessions to stream your live heart rate. No workout is saved to Health."
+        NSLocalNetworkUsageDescription: "This app sends your live heart rate to your Mac over Wi-Fi."
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: Watch/HRWatchApp.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        # Required by HKHealthStore.enableBackgroundDelivery — without it the
+        # call throws "missing com.apple.developer.healthkit.background-delivery
+        # entitlement" and passive background sync never arms.
+        com.apple.developer.healthkit.background-delivery: true
+        com.apple.security.application-groups:
+          - group.${HR_BUNDLE_PREFIX}.hrlink
+        # com.apple.developer.icloud-container-identifiers:
+        #   - iCloud.${HR_BUNDLE_PREFIX}.hrlink
+        # com.apple.developer.icloud-services:
+        #   - CloudKit
+    dependencies:
+      - target: HRWatchWidgets
+        embed: true
+  HRWatchWidgets:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: WatchWidgets
+      - path: WatchShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ${HR_BUNDLE_PREFIX}.HRWatchApp.widgets
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+    info:
+      path: WatchWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Heart Rate Mac
+        CFBundleVersion: "7"
+        HRAppGroup: group.${HR_BUNDLE_PREFIX}.hrlink
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: WatchWidgets/HRWatchWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.${HR_BUNDLE_PREFIX}.hrlink
