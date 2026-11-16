@@ -1,4 +1,4 @@
-# Heart Rate for Mac
+# Pulse on Mac
 
 Your Apple Watch heart rate in the Mac menu bar, with a trend chart. Readings
 go straight from the Watch to the Mac over your own Wi-Fi: no iPhone app, no
@@ -23,7 +23,14 @@ account, no cloud.
 
 ## Install
 
-1. Create `local.env` in the project folder with your own values:
+1. Get the code:
+
+   ```bash
+   git clone https://github.com/aaryanvani-PM/pulse-on-mac.git
+   cd pulse-on-mac
+   ```
+
+2. Create `local.env` in the project folder with your own values:
 
    ```
    HR_TEAM_ID=ABCDE12345
@@ -33,15 +40,15 @@ account, no cloud.
    The Team ID is under Xcode > Settings > Accounts > your team. The prefix
    can be anything unique to you.
 
-2. Build and start the Mac app:
+3. Build and start the Mac app:
 
    ```bash
    Scripts/install-mac.sh
    ```
 
-   A heart appears in the menu bar. Allow Local Network access if macOS asks.
+   A heart appears in the menu bar. The app is called **Heart Rate**. Allow Local Network access if macOS asks.
 
-3. Build and install the Watch app (Watch unlocked and near the Mac):
+4. Build and install the Watch app (Watch unlocked and near the Mac):
 
    ```bash
    Scripts/install-watch.sh
@@ -55,12 +62,12 @@ account, no cloud.
    Signing & Capabilities for each target, build to your Watch from Xcode,
    and then use the scripts from then on.
 
-4. Pair. On the Mac, click the menu-bar heart and open **Connection** to see
+5. Pair. On the Mac, click the menu-bar heart and open **Connection** to see
    the pairing number. On the Watch, open **Heart Rate Mac**, type that number
    on the keypad and tap Pair. Allow Health access when asked. You do this
    once.
 
-5. For periodic updates, add the **Heart Rate Mac** complication to the watch
+6. For periodic updates, add the **Heart Rate Mac** complication to the watch
    face you actually use. watchOS only wakes the app in the background while
    its complication is on the active face.
 
