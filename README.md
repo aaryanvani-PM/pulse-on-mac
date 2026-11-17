@@ -1,4 +1,5 @@
 # Pulse on Mac
+<img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/99685bbd-ac2d-40df-af2c-9d811f373a37" />
 
 Your Apple Watch heart rate in the Mac menu bar, with a trend chart. Readings
 go straight from the Watch to the Mac over your own Wi-Fi: no iPhone app, no
