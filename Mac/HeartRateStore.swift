@@ -36,8 +36,13 @@ final class HeartRateStore {
         case passiveQuiet
     }
 
-    /// A live-mode reading newer than this is "live".
-    static let freshWindow: TimeInterval = 6
+    /// A live-mode reading received within this window is "live".
+    /// During a session the Watch sends only when HealthKit produces a new
+    /// reading, which happens every 1–10 s, not on a fixed beat. A shorter
+    /// window made the status flicker Live → Connected between readings.
+    /// 15 s matches the Watch's own "no new reading" threshold, after which
+    /// it reports the sensor as missing.
+    static let freshWindow: TimeInterval = 15
     /// A live sample whose MEASUREMENT is older than this cannot pose as
     /// live even if its packet just arrived (delayed delivery / replay).
     static let liveSampleWindow: TimeInterval = 15

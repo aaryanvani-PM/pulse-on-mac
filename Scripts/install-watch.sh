@@ -12,5 +12,14 @@ xcodebuild -project HeartRateMenuBar.xcodeproj -scheme HRWatchApp -configuration
   | grep -E "error:|BUILD" || true
 app=.build/watch/Build/Products/Debug-watchos/HRWatchApp.app
 [ -d "$app" ] || { echo "Build failed — open the project in Xcode, select your team, and try again."; exit 1; }
-xcrun devicectl device install app --device "$watch" "$app" | grep -E "bundleID|ERROR" || true
-echo "Installed. Open Heart Rate Mac on the Watch once, then add its complication to your watch face."
+# The connection to a Watch drops now and then; try a few times.
+for attempt in 1 2 3; do
+  if xcrun devicectl device install app --device "$watch" "$app" 2>&1 | grep -q "bundleID"; then
+    echo "Installed. Open Heart Rate Mac on the Watch once, then add its complication to your watch face."
+    exit 0
+  fi
+  echo "Install attempt $attempt didn't reach the Watch. Retrying…"
+  sleep 3
+done
+echo "Couldn't install on the Watch. Unlock it, keep it on its charger near this Mac, and run this script again."
+exit 1

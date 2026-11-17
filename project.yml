@@ -19,6 +19,9 @@ targets:
     sources:
       - path: Mac
       - path: Shared
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: Mac/Info.plist
       properties:
@@ -46,6 +49,9 @@ targets:
       - path: Watch
       - path: WatchShared
       - path: Shared
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: Watch/Info.plist
       properties:
