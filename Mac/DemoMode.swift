@@ -21,11 +21,17 @@ enum DemoMode {
         let now = Date().timeIntervalSince1970
         var generator = SeededRandom(seed: 7)
 
-        // A day of background readings, one every 5 minutes.
+        // A month of background readings, one every 5 minutes. Each day
+        // gets its own small shift, and runs happen three days a week.
         var points: [TrendPoint] = []
-        var t = now - 24 * 3600
+        var t = now - 30 * 86400
+        var dayShift = 0
+        var lastDay = -1
         while t < now - 3600 {
-            let bpm = typical(at: Date(timeIntervalSince1970: t)) + generator.next(in: -3...3)
+            let date = Date(timeIntervalSince1970: t)
+            let day = Calendar.current.ordinality(of: .day, in: .era, for: date) ?? 0
+            if day != lastDay { lastDay = day; dayShift = generator.next(in: -4...4) }
+            let bpm = typical(at: date) + dayShift + generator.next(in: -3...3)
             points.append(TrendPoint(t: t, bpm: bpm))
             t += 300
         }
@@ -54,10 +60,13 @@ enum DemoMode {
         }
     }
 
-    /// Heart rate for a typical weekday at this local time of day.
+    /// Heart rate for a typical day at this local time. Runs on Monday,
+    /// Wednesday and Saturday mornings, and today, so the Day view shows one.
     private static func typical(at date: Date) -> Int {
-        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+        let parts = Calendar.current.dateComponents([.hour, .minute, .weekday], from: date)
         let hour = Double(parts.hour ?? 0) + Double(parts.minute ?? 0) / 60
+        let runDay = [2, 4, 7].contains(parts.weekday ?? 0) || Calendar.current.isDateInToday(date)
+        if !runDay, (7.25..<8.0).contains(hour) { return 72 }
         switch hour {
         case ..<6.5: return 56 + Int(3 * sin(hour * 2))           // asleep
         case ..<7.25: return 66                                     // waking up

@@ -2,8 +2,8 @@ import Foundation
 
 /// Wire protocol between the watch and the Mac (HTTP POST bodies, JSON).
 ///
-///   POST /pair   PairRequest            -> 200 PairResponse | 403
-///   POST /event  WatchPacket (Bearer)   -> 204
+///   POST /pair   PairRequest                       -> 200 PairResponse | 403
+///   POST /event  SealedPacket (encrypted WatchPacket) -> 204 | 401 | 409
 enum PacketEvent {
     /// A fresh heart-rate reading. `bpm` and `sampleTs` are set.
     static let heartRate = "hr"
@@ -50,9 +50,19 @@ struct WatchPacket: Codable, Sendable {
     }
 }
 
-struct PairRequest: Codable, Sendable { let code: String }
+/// Pairing (see SecureChannel). The code itself is never sent.
+struct PairRequest: Codable, Sendable {
+    let v: Int
+    /// The Watch's X25519 public key, base64.
+    let key: String
+    /// HMAC proving the Watch was given the pairing code.
+    let proof: String
+}
 struct PairResponse: Codable, Sendable {
-    let token: String
+    /// The Mac's X25519 public key, base64.
+    let key: String
+    /// Proof that the Mac derived the same shared secret.
+    let confirm: String
     /// The Mac's stable mDNS hostname (e.g. "My-Mac.local"), when known.
     /// The watch prefers it over the IP so DHCP renewals don't break the link.
     var host: String?

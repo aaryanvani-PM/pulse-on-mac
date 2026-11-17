@@ -25,9 +25,9 @@ targets:
     info:
       path: Mac/Info.plist
       properties:
-        CFBundleDisplayName: Heart Rate
+        CFBundleDisplayName: Pulse on Mac
         LSUIElement: true
-        NSLocalNetworkUsageDescription: "Heart Rate receives live heart-rate data from your Apple Watch over Wi-Fi."
+        NSLocalNetworkUsageDescription: "Pulse on Mac receives live heart-rate data from your Apple Watch over Wi-Fi."
         HRAppGroup: group.${HR_BUNDLE_PREFIX}.hrlink
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -55,7 +55,7 @@ targets:
     info:
       path: Watch/Info.plist
       properties:
-        CFBundleDisplayName: Heart Rate Mac
+        CFBundleDisplayName: Pulse
         CFBundleVersion: "7"
         HRAppGroup: group.${HR_BUNDLE_PREFIX}.hrlink
         WKApplication: true
@@ -98,7 +98,7 @@ targets:
     info:
       path: WatchWidgets/Info.plist
       properties:
-        CFBundleDisplayName: Heart Rate Mac
+        CFBundleDisplayName: Pulse
         CFBundleVersion: "7"
         HRAppGroup: group.${HR_BUNDLE_PREFIX}.hrlink
         NSExtension:

@@ -39,6 +39,18 @@ enum DemoExport {
             try? await Task.sleep(for: .seconds(1.5))
             open.png().map { try? $0.write(to: folder.appendingPathComponent("popover-connection-\(name).png")) }
             open.close()
+            // Settings with an alert switched on, from a throwaway store so
+            // the user's own settings are never touched.
+            let suite = "pulse-demo-settings"
+            let demoPrefs = Preferences(defaults: UserDefaults(suiteName: suite)!)
+            demoPrefs.highAlert = true
+            demoPrefs.highLimit = 120
+            demoPrefs.sustainMinutes = 5
+            let settings = Capture(SettingsView(prefs: demoPrefs), appearance: appearance, active: true)
+            try? await Task.sleep(for: .seconds(1.5))
+            settings.png().map { try? $0.write(to: folder.appendingPathComponent("settings-\(name).png")) }
+            settings.close()
+            UserDefaults().removePersistentDomain(forName: suite)
         }
 
         // 20 s video of the 1H popover with the reading ticking.
@@ -52,24 +64,37 @@ enum DemoExport {
     }
 
     /// An off-screen window holding the view, drawn at 2x.
+    /// Borderless windows can't become key by default; controls in a
+    /// non-key window draw without their accent colour.
+    final class KeyWindow: NSWindow {
+        override var canBecomeKey: Bool { true }
+        override var canBecomeMain: Bool { true }
+    }
+
     @MainActor
     final class Capture {
         let window: NSWindow
         let host: NSView
 
-        init<V: View>(_ view: V, appearance: NSAppearance.Name) {
+        /// `active` draws controls as in the focused window (blue switches).
+        init<V: View>(_ view: V, appearance: NSAppearance.Name, active: Bool = false) {
             let root = view
                 .background(Color(nsColor: .windowBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             let host = NSHostingView(rootView: root)
             host.frame = NSRect(origin: .zero, size: host.fittingSize)
-            window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            window = KeyWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
             window.isOpaque = false
             window.backgroundColor = .clear
             window.appearance = NSAppearance(named: appearance)
             window.contentView = host
             window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
-            window.orderFront(nil)
+            if active {
+                NSApp.activate(ignoringOtherApps: true)
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                window.orderFront(nil)
+            }
             self.host = host
         }
 

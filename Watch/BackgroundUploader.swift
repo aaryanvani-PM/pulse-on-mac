@@ -93,7 +93,9 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         packet.op = op
         packet.queuedTs = Date().timeIntervalSince1970
         let file = folder.appendingPathComponent(UUID().uuidString + ".json")
-        try JSONEncoder().encode(packet).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        // Sealed before it is queued: the file and the request carry only ciphertext.
+        try JSONEncoder().encode(SecureChannel.seal(packet, secret: credentials.token))
+            .write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         start(file: file, credentials: credentials, hostIndex: 0, op: op, queuedAt: packet.queuedTs ?? 0)
         record("Queued with watchOS · waiting for Mac confirmation")
     }
@@ -117,7 +119,8 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(credentials.token)", forHTTPHeaderField: "Authorization")
+        // Non-secret key id, so completion can tell which pairing queued it.
+        request.setValue(PairingProof.keyID(for: credentials.token), forHTTPHeaderField: "X-Pulse-Key")
         let task = session.uploadTask(with: request, fromFile: file)
         // Non-secret file identity, host position, operation id and queue
         // time survive process relaunch.
@@ -180,12 +183,13 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         }
         PassiveTrace.event("upload.complete", op: info.op, fields)
         guard BackgroundRefresh.isEnabled, let credentials = CredentialStore.current,
-              task.originalRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer \(credentials.token)" else {
+              task.originalRequest?.value(forHTTPHeaderField: "X-Pulse-Key") == PairingProof.keyID(for: credentials.token) else {
             try? FileManager.default.removeItem(at: file)
             return
         }
         if error == nil, let status, (200..<300).contains(status),
-           let data = try? Data(contentsOf: file), let packet = try? JSONDecoder().decode(WatchPacket.self, from: data) {
+           let data = try? Data(contentsOf: file), let sealed = try? JSONDecoder().decode(SealedPacket.self, from: data),
+           let packet = try? SecureChannel.open(sealed, secret: credentials.token).packet {
             if let ts = packet.sampleTs {
                 let previous = UserDefaults.standard.double(forKey: "passiveSync.deliveredTs.v2")
                 UserDefaults.standard.set(max(previous, ts), forKey: "passiveSync.deliveredTs.v2")

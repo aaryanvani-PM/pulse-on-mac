@@ -28,14 +28,14 @@ enum LinkError: LocalizedError {
         case .wrongCode:
             return "Your Mac didn't accept that number. Enter the one it shows now."
         case .badResponse:
-            return "Couldn't reach your Mac. Check it's on the same Wi‑Fi and Heart Rate is running."
+            return "Couldn't reach your Mac. Check it's on the same Wi‑Fi and Pulse on Mac is running."
         }
     }
 }
 
 /// Watch -> Mac sender over URLSession (TN3135: no raw sockets or Bonjour
-/// browsing on watchOS). Plaintext HTTP is a documented development
-/// limitation. Sends are retried with exponential backoff (2–8 s).
+/// browsing on watchOS). Every reading is sealed with SecureChannel, so
+/// plain HTTP carries only ciphertext. Sends are retried with exponential backoff (2–8 s).
 actor LinkClient {
     private let session: URLSession
     private weak var store: LinkStateStore?
@@ -62,24 +62,34 @@ actor LinkClient {
         }
     }
 
-    /// One-shot pairing against the code shown in the Mac menu bar.
-    /// On success the issued token is stored in the Keychain.
+    /// One-shot pairing against the number shown in the Mac menu bar. Both
+    /// sides agree a shared secret (SecureChannel); the code is only proved,
+    /// never sent, and the secret is stored once the Mac has proved it too.
     func pair(host: String, code: String) async throws {
+        let privateKey = SecureChannel.newKeyPair()
+        let watchKey = privateKey.publicKey.rawRepresentation
         var request = URLRequest(url: URL(string: "http://\(host):5337/pair")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(PairRequest(code: code))
+        request.httpBody = try JSONEncoder().encode(PairRequest(
+            v: SecureChannel.version, key: watchKey.base64EncodedString(),
+            proof: SecureChannel.codeProof(code: code, watchKey: watchKey)))
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw LinkError.badResponse }
         guard http.statusCode == 200 else {
             throw http.statusCode == 403 ? LinkError.wrongCode : LinkError.badResponse
         }
         let pairResponse = try JSONDecoder().decode(PairResponse.self, from: data)
+        guard let macKey = Data(base64Encoded: pairResponse.key),
+              let secret = try? SecureChannel.sharedSecret(privateKey: privateKey, peerKey: macKey,
+                                                           watchKey: watchKey, macKey: macKey, code: code),
+              pairResponse.confirm == SecureChannel.confirmation(secret: secret, macKey: macKey)
+        else { throw LinkError.badResponse }
         // The address just answered, so it goes first; the Mac's .local
         // name is kept as an alternate for networks where it resolves.
         let hostname = pairResponse.host.flatMap { $0.isEmpty ? nil : $0 }
         CredentialStore.save(
-            WatchCredentials(host: host, fallbackHost: hostname, token: pairResponse.token)
+            WatchCredentials(host: host, fallbackHost: hostname, token: secret)
         )
         consecutiveFailures = 0
         nextAllowedSend = .distantPast
@@ -120,8 +130,7 @@ actor LinkClient {
                 var request = URLRequest(url: URL(string: "\(WatchCredentials.baseURL(for: host))/event")!)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue("Bearer \(credentials.token)", forHTTPHeaderField: "Authorization")
-                request.httpBody = try JSONEncoder().encode(packet)
+                request.httpBody = try JSONEncoder().encode(SecureChannel.seal(packet, secret: credentials.token))
                 let (_, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                     throw LinkError.badResponse
@@ -198,7 +207,7 @@ actor LinkClient {
             switch urlError.code {
             case .timedOut, .cannotConnectToHost, .cannotFindHost,
                  .networkConnectionLost, .notConnectedToInternet:
-                return "Can't reach your Mac. Check both devices are on the same Wi-Fi and allow Local Network access for Heart Rate."
+                return "Can't reach your Mac. Check both devices are on the same Wi-Fi and allow Local Network access for Pulse on Mac."
             default:
                 break
             }

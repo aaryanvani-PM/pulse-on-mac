@@ -85,6 +85,7 @@ struct HomeView: View {
     @Environment(LinkStateStore.self) private var linkState
     @Environment(PassiveMonitor.self) private var passive
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("passiveSyncEnabled") private var passiveSyncEnabled = true
     @State private var confirmUnpair = false
 
@@ -163,7 +164,7 @@ struct HomeView: View {
                 Text(shownBPM.map(String.init) ?? "--")
                     .font(.system(size: 54, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                    .contentTransition(.numericText())
+                    .contentTransition(reduceMotion ? .identity : .numericText())
                     .foregroundStyle(isLive ? .primary : .secondary)
                 Text("BPM")
                     .font(.system(.footnote, design: .rounded).weight(.semibold))
@@ -175,7 +176,14 @@ struct HomeView: View {
                 .monospacedDigit()
                 .lineLimit(1)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spokenReading)
+    }
+
+    /// The reading as one sentence for VoiceOver.
+    private var spokenReading: String {
+        let value = shownBPM.map { "Heart rate \($0) beats per minute" } ?? "No heart rate reading yet"
+        return "\(value). \(caption). \(badgeText)."
     }
 
     /// One line saying how current the number is.
@@ -238,7 +246,7 @@ struct HomeView: View {
     private var settings: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle("Background Sync", isOn: $passiveSyncEnabled)
-            Text("Sends readings to your Mac about every 15 minutes while this app is closed. Keep the Heart Rate Mac complication on your watch face.")
+            Text("Sends readings to your Mac about every 15 minutes while this app is closed. Keep the Pulse complication on your watch face.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

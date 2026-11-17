@@ -83,7 +83,7 @@ struct HeartRateWidget: Widget {
         StaticConfiguration(kind: ComplicationCache.kind, provider: HeartRateProvider()) { entry in
             HeartRateComplicationView(entry: entry)
         }
-        .configurationDisplayName("Heart Rate Mac")
+        .configurationDisplayName("Pulse")
         .description("Your latest Watch reading. Keep on your active face to support occasional Mac sync.")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryInline, .accessoryCorner])
     }

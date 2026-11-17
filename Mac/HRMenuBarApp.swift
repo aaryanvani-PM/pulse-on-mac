@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct HRMenuBarApp: App {
@@ -29,7 +30,10 @@ struct HRMenuBarApp: App {
         }
         let store = HeartRateStore(historyURL: TrendHistory.defaultURL)
         IngestLog.note("receiver-launched")
-        store.onDecision = { packet, decision, receivedAt in
+        let alerts = HeartAlerts(prefs: .shared)
+        UNUserNotificationCenter.current().delegate = NotificationPresenter.shared
+        store.onDecision = { [weak store] packet, decision, receivedAt in
+            if decision == "accepted", let store { alerts.evaluate(points: store.trend.points) }
             // Passive traffic only: a continuous session sends ~1 packet/s.
             guard packet.mode == .passive else { return }
             IngestLog.record(packet, decision: decision, receivedAt: receivedAt)
@@ -40,10 +44,12 @@ struct HRMenuBarApp: App {
             onPair: { store.notePairing($0) },
             onState: { store.setServerState($0) }
         )
+        server.onRejected = { store.noteRejected() }
         // Autostart at launch: the menu-bar window is created lazily, so the
         // server must not depend on the window being opened first.
         store.configure(pairingCode: credentials.pairingCode, localAddress: LocalAddress.primaryIPv4())
         server.start()
+        ConnectionMonitor.shared.start(isListening: { [weak store] in store?.serverState == .listening })
         // The Mac's DHCP address can change while the app runs; keep the
         // displayed pairing address current every 5 seconds.
         let cloud = CloudPublisher()
@@ -71,11 +77,15 @@ struct HRMenuBarApp: App {
             MenuBarLabel(store: store)
         }
         .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView(prefs: .shared)
+        }
     }
 }
 
 /// The always-visible menu-bar item: the BPM sits directly in the bar with a
-/// heart after it, updating every second.
+/// heart after it, updating every second, styled by the user's settings.
 ///
 /// Why a dedicated view: a label written inline in the App body did not
 /// re-render when samples arrived (the value only ever showed up in the
@@ -84,17 +94,39 @@ struct HRMenuBarApp: App {
 /// drives the live→stale dimming and the passive-sync age.
 private struct MenuBarLabel: View {
     let store: HeartRateStore
+    private var prefs: Preferences { .shared }
 
     var body: some View {
         let status = store.status(at: store.now)
+        let recent = Self.isRecent(status)
+        let showNumber = prefs.menuBarStyle != .heartOnly && !(prefs.heartOnlyWhenNotRecent && !recent)
+        let showHeart = prefs.menuBarStyle != .numberOnly || !showNumber
         HStack(spacing: 4) {
-            Text(displayValue(for: status))
-                .monospacedDigit() // 7↔8 glyph widths differ; no layout jitter
-                .foregroundStyle(textStyle(for: status))
-            Image(systemName: symbolName(for: status))
-                .foregroundStyle(iconStyle(for: status))
+            if showNumber {
+                Text(displayValue(for: status))
+                    .monospacedDigit() // 7↔8 glyph widths differ; no layout jitter
+                    .foregroundStyle(textStyle(for: status))
+            }
+            if showHeart {
+                Image(systemName: symbolName(for: status))
+                    .foregroundStyle(iconStyle(for: status))
+            }
         }
         .font(.system(size: 13, weight: .medium))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spokenDescription(status))
+    }
+
+    private static func isRecent(_ status: HeartRateStore.Status) -> Bool {
+        switch status {
+        case .live, .connected, .passiveSynced: return true
+        default: return false
+        }
+    }
+
+    private var zone: Preferences.Zone {
+        guard let bpm = store.currentBPM else { return .normal }
+        return prefs.zone(for: bpm)
     }
 
     private func displayValue(for status: HeartRateStore.Status) -> String {
@@ -116,6 +148,13 @@ private struct MenuBarLabel: View {
     }
 
     private func textStyle(for status: HeartRateStore.Status) -> AnyShapeStyle {
+        if prefs.colorOutsideLimits, Self.isRecent(status) {
+            switch zone {
+            case .high: return AnyShapeStyle(Color.orange)
+            case .low: return AnyShapeStyle(Color.cyan)
+            case .normal: break
+            }
+        }
         switch status {
         case .live, .connected: return AnyShapeStyle(.primary)
         case .stale, .passiveSynced: return AnyShapeStyle(.secondary)
@@ -130,5 +169,27 @@ private struct MenuBarLabel: View {
         case .stale: return AnyShapeStyle(.secondary)
         default: return AnyShapeStyle(.tertiary)
         }
+    }
+
+    /// What VoiceOver reads for the menu-bar item.
+    private func spokenDescription(_ status: HeartRateStore.Status) -> String {
+        guard let bpm = store.currentBPM, displayValue(for: status) != "--" else {
+            return "Heart rate, no reading"
+        }
+        var parts = ["Heart rate \(bpm) beats per minute"]
+        switch status {
+        case .live, .connected: parts.append("live")
+        case .passiveSynced, .stale, .passiveQuiet:
+            if let last = store.samples.last {
+                parts.append("measured \(HeartRateStore.spokenAge(store.now.timeIntervalSince(last.recordedAt)))")
+            }
+        default: break
+        }
+        switch zone {
+        case .high: parts.append("above your \(prefs.highLimit) limit")
+        case .low: parts.append("below your \(prefs.lowLimit) limit")
+        case .normal: break
+        }
+        return parts.joined(separator: ", ")
     }
 }

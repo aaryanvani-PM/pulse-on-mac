@@ -29,6 +29,14 @@ final class PassiveMonitor {
     private var observerQuery: HKObserverQuery?
     private var isRegistering = false
     private var isSyncing = false
+    /// When the running sync started, and which one it is. watchOS can
+    /// suspend the app mid-query at the end of a wake; that frozen sync must
+    /// not block the next wake (seen on device: a refresh skipped 16 minutes
+    /// later because of it).
+    private var syncStartedAt: Date?
+    private var syncToken: UUID?
+    /// A real sync takes seconds; one older than this was frozen.
+    private static let staleSyncAfter: TimeInterval = 60
     private var desiredEnabled = false
     private var observerCallbacks = 0
     private(set) var isRegistered = false
@@ -182,12 +190,27 @@ final class PassiveMonitor {
             outcome = "Skipped: disabled or pairing inaccessible"
             return
         }
-        guard !isContinuousActive(), !isSyncing, !Task.isCancelled else {
+        let lockIsStale = isSyncing && Date().timeIntervalSince(syncStartedAt ?? .distantPast) > Self.staleSyncAfter
+        guard !isContinuousActive(), !isSyncing || lockIsStale, !Task.isCancelled else {
             outcome = "Skipped: another sync/session active or canceled"
             return
         }
+        if lockIsStale {
+            PassiveTrace.event("sync.staleLockReplaced", op: op,
+                               ["age": String(Int(Date().timeIntervalSince(syncStartedAt ?? Date())))])
+        }
+        let token = UUID()
+        syncToken = token
         isSyncing = true
-        defer { isSyncing = false }
+        syncStartedAt = Date()
+        // Only the newest sync releases the lock; a frozen one that resumes
+        // later must not clear a lock a newer sync now holds.
+        defer {
+            if syncToken == token {
+                isSyncing = false
+                syncStartedAt = nil
+            }
+        }
         do {
             // One bounded newest-sample query, never a full-history baseline.
             // No persistent anchor is needed when only the newest value is sent.

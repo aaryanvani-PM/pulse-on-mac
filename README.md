@@ -14,7 +14,14 @@ account, no cloud.
 - **Live** — tap Go Live on the Watch for a new reading every few seconds.
 - **Periodic** — with the Watch app closed, the Mac still gets your readings
   about every 15 minutes, a few minutes old, and fills in the chart between.
-- **Trend** — 1 hour, 6 hours or a day, kept on your Mac for a week.
+- **Trend** — the last hour, 6 hours, day, 7 days or 30 days, kept on your Mac
+  for 30 days. Week and month views show each day's low and high.
+- **Alerts** — optional notifications when your heart rate stays above or
+  below limits you set. The menu bar number changes color past them.
+- **Your menu bar, your way** — heart and number, number only, or heart only.
+  Alerts and menu bar options are under the gear button in the popover.
+- **Encrypted** — every reading is end-to-end encrypted between your Watch
+  and Mac. Works with VoiceOver.
 
 > This is not an App Store app. You build and install it yourself with Xcode
 > and a free Apple ID. See "Limits" before you start.
@@ -53,7 +60,7 @@ account, no cloud.
    Scripts/install-mac.sh
    ```
 
-   A heart appears in the menu bar. The app is called **Heart Rate**. Allow Local Network access if macOS asks.
+   A heart appears in the menu bar. The app is called **Pulse on Mac**. Allow Local Network access if macOS asks.
 
 4. Build and install the Watch app (Watch unlocked and near the Mac):
 
@@ -70,11 +77,11 @@ account, no cloud.
    and then use the scripts from then on.
 
 5. Pair. On the Mac, click the menu-bar heart and open **Connection** to see
-   the pairing number. On the Watch, open **Heart Rate Mac**, type that number
+   the pairing number. On the Watch, open **Pulse**, type that number
    on the keypad and tap Pair. Allow Health access when asked. You do this
    once.
 
-6. For periodic updates, add the **Heart Rate Mac** complication to the watch
+6. For periodic updates, add the **Pulse** complication to the watch
    face you actually use. watchOS only wakes the app in the background while
    its complication is on the active face.
 
@@ -95,13 +102,17 @@ account, no cloud.
   network and reconnects by itself; this can take from a second to a few
   minutes. If the Mac moved to a different network, or the search finds
   nothing, tap Unpair Mac and enter the new pairing number.
-- **Home network only, unencrypted.** Readings are sent as plain HTTP on your
-  local network, protected by a pairing token. Do not use it on networks you
-  do not trust.
+- **Encryption covers readings, not pairing tricks.** Readings are
+  encrypted end to end, and the pairing key never crosses the network. Pair
+  on a network you trust: someone actively intercepting the few seconds of
+  pairing could in theory guess the 4-digit code.
+- **Alerts aren't medical.** They need two readings in a row past your
+  limit, so with the Watch app closed one can take up to about 30 minutes.
+  Your Apple Watch has its own heart notifications in Settings > Heart.
 
 ## Privacy
 
-Readings stay on your devices. The Mac keeps a week of history in
+Readings stay on your devices. The Mac keeps 30 days of history in
 `~/Library/Application Support/HRMenuBar/history.json`. Nothing is sent to
 any server. Diagnostic logs record times and delivery steps, never heart-rate
 values.

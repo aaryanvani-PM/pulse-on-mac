@@ -1,17 +1,17 @@
 import Foundation
 import Security
 
-/// Mac-side credentials: the 6-digit pairing code shown to the user and the
-/// set of tokens issued to paired watches. Tokens persist in the Keychain so
-/// a Mac restart keeps existing pairings valid.
-///
-/// DEVELOPMENT LIMITATION: pairing and streaming run over plaintext HTTP on
-/// the local network. The token is returned once in the /pair response body.
-/// This is a local development convenience, NOT production security. See README.
+/// Mac-side credentials: the pairing code shown to the user and the shared
+/// secrets agreed with paired watches (see SecureChannel). Secrets are
+/// derived on both sides and never sent; they persist in the Keychain so a
+/// Mac restart keeps pairings valid.
 final class MacCredentials: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.aryanvani.hrlink.credentials")
     private var tokens: Set<String> = []
-    private static let tokenAccount = "mac-paired-tokens"
+    private static let tokenAccount = "mac-paired-keys-v2"
+    /// Pre-encryption pairings: their keys crossed the network, so they are
+    /// dropped and the Watch pairs again.
+    private static let legacyTokenAccount = "mac-paired-tokens"
     private static let cloudTokenAccount = "mac-cloud-token"
     private var cloudTokenValue: String
 
@@ -36,17 +36,19 @@ final class MacCredentials: @unchecked Sendable {
             cloudTokenValue = Self.randomHex(32)
             KeychainStore.save(Data(cloudTokenValue.utf8), account: Self.cloudTokenAccount)
         }
+        KeychainStore.delete(account: Self.legacyTokenAccount)
         if let data = KeychainStore.load(account: Self.tokenAccount),
            let stored = try? JSONDecoder().decode([String].self, from: data) {
             tokens = Set(stored)
         }
     }
 
-    /// Validates a pairing code and issues a new session token. Returns nil
-    /// when the code is wrong.
-    func verifyPairing(code: String) -> String? {
+    /// Checks the Watch's proof of the pairing code, agrees a shared secret
+    /// with it and returns the reply. Nil when the proof is wrong.
+    func pair(_ request: PairRequest) -> (response: PairResponse, secret: String)? {
         queue.sync {
-            guard code == codeValue else {
+            guard request.v == SecureChannel.version, let watchKey = Data(base64Encoded: request.key),
+                  request.proof == SecureChannel.codeProof(code: codeValue, watchKey: watchKey) else {
                 failedPairAttempts += 1
                 if failedPairAttempts >= 5 {
                     failedPairAttempts = 0
@@ -55,15 +57,27 @@ final class MacCredentials: @unchecked Sendable {
                 return nil
             }
             failedPairAttempts = 0
-            let token = Self.randomHex(32)
-            tokens.insert(token)
+            let privateKey = SecureChannel.newKeyPair()
+            let macKey = privateKey.publicKey.rawRepresentation
+            guard let secret = try? SecureChannel.sharedSecret(privateKey: privateKey, peerKey: watchKey,
+                                                               watchKey: watchKey, macKey: macKey, code: codeValue)
+            else { return nil }
+            tokens.insert(secret)
             persistLocked()
-            return token
+            let response = PairResponse(key: macKey.base64EncodedString(),
+                                        confirm: SecureChannel.confirmation(secret: secret, macKey: macKey),
+                                        host: LocalAddress.localHostname())
+            return (response, secret)
         }
     }
 
-    func isAuthorized(_ token: String) -> Bool {
-        queue.sync { !token.isEmpty && (tokens.contains(token) || token == cloudTokenValue) }
+    var hasPairedWatch: Bool { queue.sync { !tokens.isEmpty } }
+
+    /// The shared secret for a packet's key id, if that Watch is paired.
+    func secret(forKeyID keyID: String) -> String? {
+        queue.sync {
+            tokens.union([cloudTokenValue]).first { PairingProof.keyID(for: $0) == keyID }
+        }
     }
 
     /// Answer to a Watch's "are you my Mac?" challenge, or nil when no key

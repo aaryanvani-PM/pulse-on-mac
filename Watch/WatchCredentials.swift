@@ -1,7 +1,8 @@
 import Foundation
 
-/// Watch-side credentials: the Mac hosts it can reach and the bearer token
-/// the Mac issued. Persisted in the Keychain, never UserDefaults.
+/// Watch-side credentials: the Mac hosts it can reach and the shared secret
+/// agreed at pairing (see SecureChannel; it is never sent). Persisted in the
+/// Keychain, never UserDefaults.
 ///
 /// `host` is preferred (the Mac's .local hostname when known — it survives
 /// DHCP renewals); `fallbackHost` is the IP typed at pairing time, used when
@@ -24,13 +25,17 @@ struct WatchCredentials: Codable, Equatable {
 }
 
 enum CredentialStore {
-    private static let account = "watch-mac-credentials"
+    private static let account = "watch-mac-credentials-v2"
+    /// Pre-encryption pairing: its key crossed the network, so it is
+    /// dropped and the user pairs again.
+    private static let legacyAccount = "watch-mac-credentials"
 
     static func prepareForBackground() {
         KeychainStore.prepareForBackground(account: account)
     }
 
     static var current: WatchCredentials? {
+        if KeychainStore.load(account: legacyAccount) != nil { KeychainStore.delete(account: legacyAccount) }
         guard let data = KeychainStore.load(account: account) else { return nil }
         return try? JSONDecoder().decode(WatchCredentials.self, from: data)
     }

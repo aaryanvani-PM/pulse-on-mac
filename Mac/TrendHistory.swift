@@ -9,12 +9,14 @@ struct TrendPoint: Codable, Equatable, Sendable {
 }
 
 /// Measurement history behind the trend chart: sorted by measurement time,
-/// de-duplicated, kept for a week and saved to disk so a relaunch keeps it.
+/// de-duplicated, kept for 30 days and saved to disk so a relaunch keeps it.
 @MainActor
 @Observable
 final class TrendHistory {
-    static let retention: TimeInterval = 7 * 86400
-    static let maxPoints = 20_000
+    static let retention: TimeInterval = 31 * 86400
+    /// Live sessions keep a point every 10 s; this leaves room for about
+    /// two hours of Live a day on top of background readings.
+    static let maxPoints = 80_000
 
     struct Bucket: Identifiable, Equatable {
         let start: Date
@@ -22,6 +24,8 @@ final class TrendHistory {
         let min: Int
         let max: Int
         let average: Double
+        /// Readings in the interval, so averages across buckets can be weighted.
+        var count: Int = 1
         var id: Date { start }
     }
 
@@ -88,7 +92,31 @@ final class TrendHistory {
             let value = grouped[index]!
             let start = from.addingTimeInterval(Double(index) * width)
             return Bucket(start: start, end: start.addingTimeInterval(width), min: value.min, max: value.max,
-                          average: Double(value.sum) / Double(value.count))
+                          average: Double(value.sum) / Double(value.count), count: value.count)
+        }
+    }
+
+    /// One bucket per local calendar day, for the last `days` days up to
+    /// and including today. Days without readings are left out.
+    func dayBuckets(days: Int, endingAt now: Date, calendar: Calendar = .current) -> [Bucket] {
+        let today = calendar.startOfDay(for: now)
+        guard let first = calendar.date(byAdding: .day, value: -(days - 1), to: today) else { return [] }
+        let lower = first.timeIntervalSince1970
+        var grouped: [Date: (min: Int, max: Int, sum: Int, count: Int)] = [:]
+        for point in points where point.t >= lower && point.t <= now.timeIntervalSince1970 {
+            let day = calendar.startOfDay(for: point.date)
+            if let current = grouped[day] {
+                grouped[day] = (Swift.min(current.min, point.bpm), Swift.max(current.max, point.bpm),
+                                current.sum + point.bpm, current.count + 1)
+            } else {
+                grouped[day] = (point.bpm, point.bpm, point.bpm, 1)
+            }
+        }
+        return grouped.keys.sorted().map { day in
+            let value = grouped[day]!
+            let end = calendar.date(byAdding: .day, value: 1, to: day) ?? day.addingTimeInterval(86400)
+            return Bucket(start: day, end: end, min: value.min, max: value.max,
+                          average: Double(value.sum) / Double(value.count), count: value.count)
         }
     }
 

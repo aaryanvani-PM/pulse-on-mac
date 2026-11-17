@@ -11,7 +11,7 @@ enum ServerState: Sendable, Equatable {
 }
 
 enum PairResult: Sendable, Equatable {
-    case success(token: String)
+    case success
     case badCode
     case failure(String)
 }
@@ -19,8 +19,8 @@ enum PairResult: Sendable, Equatable {
 /// Minimal HTTP/1.1 server over NWListener. Low-level networking is
 /// unrestricted on macOS (unlike watchOS — the watch side uses URLSession).
 ///
-///   POST /pair   {"code": "483921"}   -> 200 {"token": "..."} | 403
-///   POST /event  Bearer token + body  -> 204
+///   POST /pair   PairRequest (key + code proof) -> 200 PairResponse | 403
+///   POST /event  SealedPacket (encrypted)       -> 204 | 401 | 409
 ///
 /// All connection state is confined to `queue`; UI updates hop to MainActor.
 /// Idle connections are swept after 120 s. Keep-alive is supported so
@@ -32,7 +32,6 @@ final class WatchHTTPServer: @unchecked Sendable {
         var buffer: [UInt8] = []
         var method = ""
         var path = ""
-        var token = ""
         var contentLength = 0
         var headersParsed = false
         var lastActivity = Date()
@@ -43,9 +42,13 @@ final class WatchHTTPServer: @unchecked Sendable {
     private var connections: [ObjectIdentifier: ConnState] = [:]
     private var bindRetries = 0
     private let credentials: MacCredentials
+    /// Confined to `queue`, like connection state.
+    private var replayGuard = ReplayGuard()
     private let onEvent: @MainActor (WatchPacket) -> Void
     private let onPair: @MainActor (PairResult) -> Void
     private let onState: @MainActor (ServerState) -> Void
+    /// A paired-looking Watch sent something this Mac couldn't open.
+    var onRejected: (@MainActor () -> Void)?
 
     init(
         credentials: MacCredentials,
@@ -192,8 +195,6 @@ final class WatchHTTPServer: @unchecked Sendable {
                         return
                     }
                     state.contentLength = length
-                } else if lower.hasPrefix("authorization: bearer ") {
-                    state.token = String(line.dropFirst("authorization: bearer ".count))
                 }
             }
             state.buffer.removeSubrange(0..<(headerEnd + 4))
@@ -205,13 +206,11 @@ final class WatchHTTPServer: @unchecked Sendable {
             state.buffer.removeSubrange(0..<state.contentLength)
             let method = state.method
             let path = state.path
-            let token = state.token
             state.headersParsed = false
             state.method = ""
             state.path = ""
-            state.token = ""
             connections[id] = state
-            handleRequest(id: id, method: method, path: path, token: token, body: body)
+            handleRequest(id: id, method: method, path: path, body: body)
             if !state.buffer.isEmpty {
                 // A pipelined request is already buffered; parse it too.
                 ingest(id: id, data: Data())
@@ -221,7 +220,12 @@ final class WatchHTTPServer: @unchecked Sendable {
         }
     }
 
-    private func handleRequest(id: ObjectIdentifier, method: String, path: String, token: String, body: Data) {
+    private func handleRequest(id: ObjectIdentifier, method: String, path: String, body: Data) {
+        if method == "GET", path == "/ping" {
+            // Local self-check by the connection monitor. Not logged.
+            respond(id: id, status: 204)
+            return
+        }
         if method == "GET", path.hasPrefix("/hello?") {
             // Identity check used by a paired Watch to find this Mac again
             // after its address changes. Reveals nothing without the key.
@@ -246,29 +250,36 @@ final class WatchHTTPServer: @unchecked Sendable {
         switch path {
         case "/pair":
             guard let request = try? JSONDecoder().decode(PairRequest.self, from: body) else {
+                // Includes Watch builds from before encryption.
                 respond(id: id, status: 400)
                 return
             }
-            if let newToken = credentials.verifyPairing(code: request.code) {
-                let payload = try? JSONEncoder().encode(
-                    PairResponse(token: newToken, host: LocalAddress.localHostname())
-                )
-                respond(id: id, status: 200, body: payload)
-                Task { @MainActor in onPair(.success(token: newToken)) }
+            if let paired = credentials.pair(request) {
+                respond(id: id, status: 200, body: try? JSONEncoder().encode(paired.response))
+                Task { @MainActor in onPair(.success) }
             } else {
                 respond(id: id, status: 403)
                 Task { @MainActor in onPair(.badCode) }
             }
 
         case "/event":
-            guard credentials.isAuthorized(token) else {
-                respond(id: id, status: 401)
-                return
-            }
-            guard let packet = try? JSONDecoder().decode(WatchPacket.self, from: body) else {
+            guard let sealed = try? JSONDecoder().decode(SealedPacket.self, from: body) else {
                 respond(id: id, status: 400)
                 return
             }
+            // Unknown key, wrong key or tampered: indistinguishable on purpose.
+            guard let secret = credentials.secret(forKeyID: sealed.k),
+                  let opened = try? SecureChannel.open(sealed, secret: secret) else {
+                respond(id: id, status: 401)
+                if let onRejected { Task { @MainActor in onRejected() } }
+                return
+            }
+            guard replayGuard.accept(nonce: opened.nonce, sent: opened.sent) else {
+                respond(id: id, status: 409)
+                IngestLog.note("replay-or-stale-rejected")
+                return
+            }
+            let packet = opened.packet
             respond(id: id, status: 204)
             Task { @MainActor in onEvent(packet) }
 
@@ -288,6 +299,7 @@ final class WatchHTTPServer: @unchecked Sendable {
         case 403: reason = "Forbidden"
         case 404: reason = "Not Found"
         case 405: reason = "Method Not Allowed"
+        case 409: reason = "Conflict"
         default: reason = "Error"
         }
         var out = Data(

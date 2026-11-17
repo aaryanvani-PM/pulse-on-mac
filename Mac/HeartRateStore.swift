@@ -72,6 +72,16 @@ final class HeartRateStore {
     private(set) var pairingCode = ""
     private(set) var localAddress: String?
     private var lastTrafficAt: Date?
+    /// Last authenticated message from a paired Watch (a reading or a
+    /// successful pairing), and the Mac's address at that moment. Saved, so
+    /// connection health survives a relaunch.
+    private(set) var lastContactAt: Date?
+    private(set) var contactAddress: String?
+    /// Last time a Watch sent something this Mac couldn't open (out-of-date
+    /// pairing). Cleared by the next good contact.
+    private(set) var lastRejectedAt: Date?
+    @ObservationIgnored private let contactDefaults: UserDefaults?
+    @ObservationIgnored private var contactSavedAt = Date.distantPast
 
     /// 1 Hz heartbeat. Time-derived UI (the menu-bar label, live→stale
     /// fades, passive-sync age) observes this so it re-renders every second
@@ -89,6 +99,12 @@ final class HeartRateStore {
 
     init(historyURL: URL? = nil) {
         trend = TrendHistory(url: historyURL)
+        // Only the real app (which saves history) remembers contact times.
+        contactDefaults = historyURL == nil ? nil : .standard
+        if let defaults = contactDefaults, defaults.double(forKey: "lastContactAt") > 0 {
+            lastContactAt = Date(timeIntervalSince1970: defaults.double(forKey: "lastContactAt"))
+            contactAddress = defaults.string(forKey: "contactAddress")
+        }
         // After a relaunch, show the last known reading with its true age
         // instead of an empty menu bar.
         if let last = trend.points.last {
@@ -179,6 +195,7 @@ final class HeartRateStore {
 
     private func decide(_ packet: WatchPacket) -> String {
         lastTrafficAt = Date()
+        noteContact()
         if let trigger = packet.trigger, let state = packet.appState {
             lastDeliveryText = "\(trigger.rawValue) · watch \(state.rawValue)"
             if state == .background, trigger != .foreground {
@@ -250,6 +267,7 @@ final class HeartRateStore {
         lastTrafficAt = Date()
         switch result {
         case .success:
+            noteContact()
             lastEventText = "A watch paired successfully."
         case .badCode:
             lastEventText = "A watch tried to pair with a wrong code."
@@ -258,17 +276,43 @@ final class HeartRateStore {
         }
     }
 
+    /// A Watch reached this Mac and proved it's paired.
+    private func noteContact() {
+        let now = Date()
+        lastContactAt = now
+        contactAddress = localAddress
+        lastRejectedAt = nil
+        // Live sessions send every few seconds; save at most twice a minute.
+        guard let defaults = contactDefaults, now.timeIntervalSince(contactSavedAt) > 30 else { return }
+        contactSavedAt = now
+        defaults.set(now.timeIntervalSince1970, forKey: "lastContactAt")
+        defaults.set(localAddress, forKey: "contactAddress")
+    }
+
+    /// A Watch sent a reading this Mac couldn't open.
+    func noteRejected() { lastRejectedAt = Date() }
+
     func notePairingCleared() {
         lastEventText = "Pairing cleared. Re-pair your watch to stream again."
     }
 
     /// Compact age for display: "just now", "45s ago", "4m ago", "1h 07m ago".
-    static func ageText(_ interval: TimeInterval) -> String {
+    nonisolated static func ageText(_ interval: TimeInterval) -> String {
         let seconds = max(0, Int(interval))
         if seconds < 20 { return "just now" }
         if seconds < 60 { return "\(seconds)s ago" }
         let minutes = seconds / 60
         if minutes < 60 { return "\(minutes)m ago" }
         return "\(minutes / 60)h \(minutes % 60)m ago"
+    }
+
+    /// The same age, worded for VoiceOver ("5m" would be read as metres).
+    nonisolated static func spokenAge(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval))
+        if seconds < 60 { return "just now" }
+        let minutes = seconds / 60
+        if minutes < 60 { return minutes == 1 ? "1 minute ago" : "\(minutes) minutes ago" }
+        let hours = minutes / 60
+        return hours == 1 ? "about 1 hour ago" : "about \(hours) hours ago"
     }
 }
