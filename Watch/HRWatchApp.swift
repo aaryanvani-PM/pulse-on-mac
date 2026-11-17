@@ -26,6 +26,13 @@ struct HRWatchApp: App {
         _link = State(initialValue: link)
         _manager = State(initialValue: manager)
         _passive = State(initialValue: passive)
+        #if DEBUG
+        if DebugHooks.demo {
+            linkState.set(.connected)
+            manager.startDemo()
+            return
+        }
+        #endif
         passive.restoreAtLaunch()
     }
 
@@ -100,6 +107,9 @@ struct HomeView: View {
         // Runs whenever the app is paired and in the foreground: re-arms
         // passive sync (idempotent), so pairing alone is enough to enable it.
         .task {
+            #if DEBUG
+            if DebugHooks.demo { return }
+            #endif
             await passive.syncState(enabled: passiveSyncEnabled)
             // A fresh launch starts directly in .active, so the scenePhase
             // onChange below never fires on first open — run the foreground
@@ -112,6 +122,9 @@ struct HomeView: View {
         // Re-arm and catch up whenever the app comes back on screen.
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
+            #if DEBUG
+            if DebugHooks.demo { return }
+            #endif
             Task {
                 await passive.syncState(enabled: passiveSyncEnabled)
                 await passive.syncNow()

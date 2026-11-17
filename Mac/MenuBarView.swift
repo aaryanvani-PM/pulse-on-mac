@@ -12,6 +12,8 @@ struct MenuBarView: View {
     let credentials: MacCredentials
     let server: WatchHTTPServer
     let cloud: CloudPublisher
+    /// Demo export only: open the Connection section on first appearance.
+    var expandConnection = false
 
     enum TrendRange: String, CaseIterable, Identifiable {
         case hour = "1H", sixHours = "6H", day = "Day"
@@ -70,7 +72,8 @@ struct MenuBarView: View {
             // The server autostarts in HRMenuBarApp.init; the window only
             // needs to pick up the (possibly changed) local address.
             range = TrendRange(rawValue: savedRange) ?? .hour
-            guard !didConfigure else { return }
+            if expandConnection { showConnection = true }
+            guard !didConfigure, !DemoMode.isOn else { return }
             didConfigure = true
             store.configure(pairingCode: credentials.pairingCode, localAddress: LocalAddress.primaryIPv4())
         }

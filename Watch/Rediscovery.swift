@@ -145,7 +145,17 @@ enum DebugHooks {
     /// a real Mac (the simulator build has no Keychain access).
     static var previewPaired: Bool {
         #if targetEnvironment(simulator)
-        return ProcessInfo.processInfo.arguments.contains("-HRPreviewPaired")
+        return demo || ProcessInfo.processInfo.arguments.contains("-HRPreviewPaired")
+        #else
+        return false
+        #endif
+    }
+
+    /// Simulator screenshots and video: -HRDemo shows a Live session with a
+    /// changing reading, connected to a Mac, with no HealthKit or network.
+    static var demo: Bool {
+        #if targetEnvironment(simulator)
+        return ProcessInfo.processInfo.arguments.contains("-HRDemo")
         #else
         return false
         #endif

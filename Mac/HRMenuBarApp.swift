@@ -9,6 +9,24 @@ struct HRMenuBarApp: App {
 
     init() {
         let credentials = MacCredentials()
+        if DemoMode.isOn {
+            // Mock data only: no receiver, no saved history, no logging.
+            let store = HeartRateStore(historyURL: nil)
+            DemoMode.start(store)
+            _credentials = State(initialValue: credentials)
+            _store = State(initialValue: store)
+            let server = WatchHTTPServer(credentials: credentials, onEvent: { _ in },
+                                         onPair: { _ in }, onState: { _ in })
+            let cloud = CloudPublisher()
+            _server = State(initialValue: server)
+            _cloud = State(initialValue: cloud)
+            if let folder = DemoExport.folder {
+                Task { @MainActor in
+                    await DemoExport.run(store: store, credentials: credentials, server: server, cloud: cloud, to: folder)
+                }
+            }
+            return
+        }
         let store = HeartRateStore(historyURL: TrendHistory.defaultURL)
         IngestLog.note("receiver-launched")
         store.onDecision = { packet, decision, receivedAt in

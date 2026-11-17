@@ -39,6 +39,23 @@ final class WorkoutManager: NSObject {
         super.init()
     }
 
+    #if DEBUG
+    /// Simulator demo (-HRDemo): a running session whose reading drifts
+    /// every couple of seconds. Sends nothing.
+    func startDemo() {
+        state = .running
+        bpm = 82
+        lastSampleDate = Date()
+        Task { @MainActor [weak self] in
+            while let self, self.state == .running {
+                try? await Task.sleep(for: .milliseconds(Int.random(in: 1500...3000)))
+                self.bpm = min(98, max(72, (self.bpm ?? 82) + Int.random(in: -2...2)))
+                self.lastSampleDate = Date()
+            }
+        }
+    }
+    #endif
+
     func toggle() {
         switch state {
         case .idle:

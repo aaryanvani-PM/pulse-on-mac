@@ -6,7 +6,13 @@ Your Apple Watch heart rate in the Mac menu bar, with a trend chart. Readings
 go straight from the Watch to the Mac over your own Wi-Fi: no iPhone app, no
 account, no cloud.
 
-- **Live** — tap Start Monitoring on the Watch for about one reading a second.
+<p align="center">
+  <img src="Docs/images/mac-popover.png" width="320" alt="Mac menu-bar popover showing 76 BPM live and a day of heart-rate history">
+  &nbsp;&nbsp;
+  <img src="Docs/images/watch-live.png" width="211" alt="Apple Watch app showing 77 BPM live, connected to Mac">
+</p>
+
+- **Live** — tap Go Live on the Watch for a new reading every few seconds.
 - **Periodic** — with the Watch app closed, the Mac still gets your readings
   about every 15 minutes, a few minutes old, and fills in the chart between.
 - **Trend** — 1 hour, 6 hours or a day, kept on your Mac for a week.
@@ -81,7 +87,7 @@ account, no cloud.
 - **Periodic is not live.** watchOS allows about four background wakes an
   hour, so closed-app readings arrive roughly every 15 minutes and are a few
   minutes old on arrival. The menu bar always shows when a reading was
-  measured. Only Start Monitoring gives live values.
+  measured. Only Go Live gives live values.
 - **Live uses a workout session.** That is the only way watchOS provides
   second-by-second heart rate. The session is discarded: nothing is saved to
   Health and your Activity rings are not affected. It uses more battery.
@@ -119,6 +125,11 @@ project from it. `bash Tests/run-background-checks.sh` runs the logic checks.
 How the pieces fit, what was measured on a real Watch, and the platform
 limits are in [Docs/HOW-IT-WORKS.md](Docs/HOW-IT-WORKS.md). Automatic iCloud
 pairing is written but switched off, because it needs a paid developer team.
+
+Screenshots use made-up data. Launch the Mac app with `-HRDemo` to show a
+day of sample readings and a ticking live value (no receiver runs, nothing
+is saved). Add `-HRDemoExport <folder>` to save popover screenshots and a
+short video there. The Watch app accepts `-HRDemo` in the simulator.
 
 ## Licence
 
