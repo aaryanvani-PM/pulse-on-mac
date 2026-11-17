@@ -7,9 +7,10 @@ go straight from the Watch to the Mac over your own Wi-Fi: no iPhone app, no
 account, no cloud.
 
 <p align="center">
-  <img src="Docs/images/mac-popover.png" width="320" alt="Mac menu-bar popover showing 76 BPM live and a day of heart-rate history">
-  &nbsp;&nbsp;
-  <img src="Docs/images/watch-live.png" width="211" alt="Apple Watch app showing 77 BPM live, connected to Mac">
+  <img src="Docs/images/hero-menubar.png" width="820" alt="Mac menu bar showing a heart and 73, with the popover open below it showing 73 BPM live and a day of heart-rate history">
+</p>
+<p align="center">
+  <img src="Docs/images/watch-live.png" width="190" alt="Apple Watch app showing 77 BPM live, connected to Mac">
 </p>
 
 - **Live** — tap Go Live on the Watch for a new reading every few seconds.

@@ -39,11 +39,14 @@ enum DemoMode {
         }
         store.trend.insert(points)
 
+        // -HRDemoBPM <n> holds the live reading at n, to match another shot.
+        let args = ProcessInfo.processInfo.arguments
+        let fixed = args.firstIndex(of: "-HRDemoBPM").flatMap { args.indices.contains($0 + 1) ? Int(args[$0 + 1]) : nil }
         Task { @MainActor in
             var live = bpm
             var random = SeededRandom(seed: 11)
             while true {
-                live = min(98, max(70, live + random.next(in: -2...2)))
+                live = fixed ?? min(98, max(70, live + random.next(in: -2...2)))
                 store.ingest(WatchPacket(event: PacketEvent.heartRate, bpm: live,
                                          sampleTs: Date().timeIntervalSince1970, mode: .live))
                 try? await Task.sleep(for: .milliseconds(Int.random(in: 1500...3500)))
