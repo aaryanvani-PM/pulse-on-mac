@@ -36,7 +36,8 @@ final class PassiveMonitor {
     private var syncStartedAt: Date?
     private var syncToken: UUID?
     /// A real sync takes seconds; one older than this was frozen.
-    private static let staleSyncAfter: TimeInterval = 60
+    /// (A foreground send that retries the network can take most of a minute.)
+    private static let staleSyncAfter: TimeInterval = 120
     private var desiredEnabled = false
     private var observerCallbacks = 0
     private(set) var isRegistered = false
@@ -98,9 +99,17 @@ final class PassiveMonitor {
         let query = HKObserverQuery(sampleType: HKQuantityType(.heartRate), predicate: nil) { [weak self] _, completionHandler, error in
             let completion = CompletionBox(run: completionHandler)
             let errorText = error?.localizedDescription
+            // A HealthKit callback carries no guaranteed runtime: it often
+            // lands as a wake is ending, and watchOS then froze the app
+            // mid-query (seen on device: a 16-minute query, reading stranded).
+            // Ask for extra time first, synchronously, before anything else.
+            let runtime = RuntimeGrant.begin(reason: "Send the new heart-rate reading to the Mac")
             Task { @MainActor [weak self] in
                 // Completion is called on every path, including query errors.
-                defer { completion.run() }
+                defer {
+                    completion.run()
+                    runtime.end()
+                }
                 guard let self else { return }
                 // HealthKit always calls the handler once when the query is
                 // first executed. That call is "the process started", not
@@ -115,9 +124,12 @@ final class PassiveMonitor {
                 }
                 // Keep observer processing inside the short runtime budget.
                 let work = Task { await self.sync(trigger: .observer) }
+                // If watchOS takes the extra time back, stop cleanly rather
+                // than freeze mid-query holding the sync lock.
+                runtime.onExpire { work.cancel() }
                 // A background wake has only seconds. On screen there is
                 // room for an interactive send and, if needed, a search.
-                let limit: Duration = Self.appState == .background ? .seconds(10) : .seconds(90)
+                let limit: Duration = Self.appState == .background ? .seconds(20) : .seconds(90)
                 let timeout = Task {
                     try? await Task.sleep(for: limit)
                     if !Task.isCancelled { work.cancel() }
@@ -155,7 +167,16 @@ final class PassiveMonitor {
         PassiveTrace.event("refresh.fired")
         BackgroundRefresh.clearSchedule()
         BackgroundRefresh.scheduleIfNeeded()
-        await sync(trigger: .scheduledRefresh)
+        // The refresh is the one wake with guaranteed runtime. If a callback
+        // sync is mid-flight, give it a moment instead of skipping this
+        // wake; if it doesn't finish, run anyway (it counts as stale below).
+        var waited = 0
+        while isSyncing, waited < 16 {
+            try? await Task.sleep(for: .milliseconds(500))
+            waited += 1
+        }
+        if waited > 0 { PassiveTrace.event("refresh.waitedForSync", ["ms": String(waited * 500)]) }
+        await sync(trigger: .scheduledRefresh, forceIfBusy: waited >= 16)
     }
 
     /// Runs in the wake watchOS grants when a background upload finishes.
@@ -167,7 +188,7 @@ final class PassiveMonitor {
         await sync(trigger: .followUp)
     }
 
-    private func sync(trigger: WatchPacket.SyncTrigger) async {
+    private func sync(trigger: WatchPacket.SyncTrigger, forceIfBusy: Bool = false) async {
         let state = Self.appState
         let op = PassiveTrace.newOp()
         PassiveTrace.event("sync.begin", op: op, ["trigger": trigger.rawValue])
@@ -190,7 +211,7 @@ final class PassiveMonitor {
             outcome = "Skipped: disabled or pairing inaccessible"
             return
         }
-        let lockIsStale = isSyncing && Date().timeIntervalSince(syncStartedAt ?? .distantPast) > Self.staleSyncAfter
+        let lockIsStale = isSyncing && (forceIfBusy || Date().timeIntervalSince(syncStartedAt ?? .distantPast) > Self.staleSyncAfter)
         guard !isContinuousActive(), !isSyncing || lockIsStale, !Task.isCancelled else {
             outcome = "Skipped: another sync/session active or canceled"
             return

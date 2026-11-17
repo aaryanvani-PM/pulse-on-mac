@@ -94,6 +94,9 @@ account, no cloud.
   hour, so closed-app readings arrive roughly every 15 minutes and are a few
   minutes old on arrival. The menu bar always shows when a reading was
   measured. Only Go Live gives live values.
+- **A sleeping Mac can't receive.** With the lid closed or the Mac asleep,
+  readings wait on the Watch and fill in the chart as soon as the Mac wakes.
+  Nothing is lost, but the menu bar can't update until then.
 - **Live uses a workout session.** That is the only way watchOS provides
   second-by-second heart rate. The session is discarded: nothing is saved to
   Health and your Activity rings are not affected. It uses more battery.

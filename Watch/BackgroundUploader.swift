@@ -10,6 +10,8 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
     /// queued from the background can sit for minutes. A short resource
     /// timeout would fail it before the system ever tried.
     static let resourceTimeout: TimeInterval = 300
+    /// A pending upload older than this is replaced by a newer reading.
+    static let supersedeAfter: TimeInterval = 90
     private var eventWaiters: [UUID: AsyncStream<Void>.Continuation] = [:]
     private var eventsFinishedAt: Date?
     private var lastSuccessAt: Date?
@@ -69,23 +71,29 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         let tasks = await session.allTasks
         guard !Task.isCancelled, BackgroundRefresh.isEnabled,
               CredentialStore.current == credentials else { return }
-        // Keep the system queue bounded. Existing uploads get time to wake
-        // the radio; when one finishes, the completion wake queues whatever
+        // Keep the system queue bounded. A fresh upload gets time to wake
+        // the radio; when it finishes, the completion wake queues whatever
         // sample is newest by then (see PassiveMonitor.followUp).
         if let pending = tasks.first(where: { $0.state != .completed && $0.state != .canceling }) {
             let info = Self.parse(pending.taskDescription)
-            var fields = ["pendingTask": String(pending.taskIdentifier)]
+            let age = info?.queuedAt.map { Date().timeIntervalSince1970 - $0 } ?? 0
+            var fields = ["pendingTask": String(pending.taskIdentifier), "pendingAge": String(format: "%.0f", age)]
             if let pendingOp = info?.op { fields["pendingOp"] = pendingOp }
-            if let queuedAt = info?.queuedAt {
-                fields["pendingAge"] = String(format: "%.0f", Date().timeIntervalSince1970 - queuedAt)
+            // A stuck upload must not hold newer readings back. Seen on
+            // device: a transfer that never connected blocked them for 10
+            // minutes. This packet carries every reading since the last one
+            // the Mac confirmed, so it fully replaces the stuck one.
+            guard age > Self.supersedeAfter else {
+                PassiveTrace.event("upload.skipPending", op: op, fields)
+                record("Upload already pending with watchOS")
+                return
             }
-            PassiveTrace.event("upload.skipPending", op: op, fields)
-            record("Upload already pending with watchOS")
-            return
+            pending.cancel()
+            PassiveTrace.event("upload.superseded", op: op, fields)
         }
         let folder = try uploadFolder()
-        // No active tasks remain, so orphaned files from interrupted enqueue
-        // operations may be removed without affecting the system transfer.
+        // No other upload is active (a stuck one was just cancelled), so
+        // leftover files may be removed without affecting a live transfer.
         for url in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
             try? FileManager.default.removeItem(at: url)
         }
@@ -182,6 +190,11 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
             fields["sinceQueued"] = String(format: "%.1f", Date().timeIntervalSince1970 - queuedAt)
         }
         PassiveTrace.event("upload.complete", op: info.op, fields)
+        if (error as NSError?)?.code == NSURLErrorCancelled {
+            // Replaced by a newer upload (or unpaired): nothing to retry.
+            try? FileManager.default.removeItem(at: file)
+            return
+        }
         guard BackgroundRefresh.isEnabled, let credentials = CredentialStore.current,
               task.originalRequest?.value(forHTTPHeaderField: "X-Pulse-Key") == PairingProof.keyID(for: credentials.token) else {
             try? FileManager.default.removeItem(at: file)
@@ -213,8 +226,9 @@ final class BackgroundUploader: NSObject, URLSessionTaskDelegate {
         // Never retry revoked credentials. A transport failure may try the
         // alternate paired host once; later wakes retry the latest reading.
         if error != nil, index == 0, credentials.dialOrder.count > 1 {
+            // Keeps the original queue time, so its age counts the whole wait.
             start(file: file, credentials: credentials, hostIndex: 1,
-                  op: info.op ?? PassiveTrace.newOp(), queuedAt: Date().timeIntervalSince1970)
+                  op: info.op ?? PassiveTrace.newOp(), queuedAt: info.queuedAt ?? Date().timeIntervalSince1970)
             record("Retrying alternate Mac address")
             return
         }
